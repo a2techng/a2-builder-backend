@@ -6,153 +6,23 @@ const app = express();
 app.use(cors());
 app.use(express.json({ limit: "2mb" }));
 
-const PORT = process.env.PORT || 10000;
 
 // ===============================
-// GEMINI
+// API KEYS
 // ===============================
 
-async function askGemini(prompt) {
-  if (!process.env.GEMINI_API_KEY) {
-    throw new Error("GEMINI_API_KEY is not configured");
-  }
+const GEMINI_API_KEY =
+  process.env.GEMINI_API_KEY;
 
-  const response = await fetch(
-    "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key=" +
-      encodeURIComponent(process.env.GEMINI_API_KEY),
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        contents: [
-          {
-            role: "user",
-            parts: [
-              {
-                text: prompt
-              }
-            ]
-          }
-        ]
-      })
-    }
-  );
+const OPENROUTER_API_KEY =
+  process.env.OPENROUTER_API_KEY;
 
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`Gemini error: ${errorText}`);
-  }
+const PEXELS_API_KEY =
+  process.env.PEXELS_API_KEY;
 
-  const data = await response.json();
-
-  return (
-    data.candidates?.[0]?.content?.parts
-      ?.map(part => part.text || "")
-      .join("") || ""
-  );
-}
-
-
-// ===============================
-// OPENROUTER
-// ===============================
-
-async function askOpenRouter(prompt) {
-  if (!process.env.OPENROUTER_API_KEY) {
-    throw new Error("OPENROUTER_API_KEY is not configured");
-  }
-
-  const response = await fetch(
-    "https://openrouter.ai/api/v1/chat/completions",
-    {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${process.env.OPENROUTER_API_KEY}`,
-        "Content-Type": "application/json",
-        "HTTP-Referer": "https://a2builder.app",
-        "X-Title": "A² Builder"
-      },
-      body: JSON.stringify({
-        model: process.env.OPENROUTER_MODEL || "openrouter/auto",
-        messages: [
-          {
-            role: "user",
-            content: prompt
-          }
-        ]
-      })
-    }
-  );
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`OpenRouter error: ${errorText}`);
-  }
-
-  const data = await response.json();
-
-  return data.choices?.[0]?.message?.content || "";
-}
-
-
-// ===============================
-// PEXELS PHOTOS
-// ===============================
-
-async function searchPexelsPhotos(query) {
-  if (!process.env.PEXELS_API_KEY) {
-    throw new Error("PEXELS_API_KEY is not configured");
-  }
-
-  const url =
-    "https://api.pexels.com/v1/search?query=" +
-    encodeURIComponent(query) +
-    "&per_page=12";
-
-  const response = await fetch(url, {
-    headers: {
-      Authorization: process.env.PEXELS_API_KEY
-    }
-  });
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`Pexels photo error: ${errorText}`);
-  }
-
-  return await response.json();
-}
-
-
-// ===============================
-// PEXELS VIDEOS
-// ===============================
-
-async function searchPexelsVideos(query) {
-  if (!process.env.PEXELS_API_KEY) {
-    throw new Error("PEXELS_API_KEY is not configured");
-  }
-
-  const url =
-    "https://api.pexels.com/v1/videos/search?query=" +
-    encodeURIComponent(query) +
-    "&per_page=12";
-
-  const response = await fetch(url, {
-    headers: {
-      Authorization: process.env.PEXELS_API_KEY
-    }
-  });
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`Pexels video error: ${errorText}`);
-  }
-
-  return await response.json();
-}
+const OPENROUTER_MODEL =
+  process.env.OPENROUTER_MODEL ||
+  "openrouter/auto";
 
 
 // ===============================
@@ -160,135 +30,356 @@ async function searchPexelsVideos(query) {
 // ===============================
 
 app.get("/", (req, res) => {
+
   res.json({
     name: "A² Builder Backend",
     status: "online",
     version: "1.0.0"
   });
+
 });
 
 
 // ===============================
-// AI CODING ENDPOINT
+// GEMINI
+// ===============================
+
+async function askGemini(prompt) {
+
+  if (!GEMINI_API_KEY) {
+
+    throw new Error(
+      "GEMINI_API_KEY is not configured."
+    );
+
+  }
+
+  const url =
+    "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key=" +
+    GEMINI_API_KEY;
+
+  const response = await fetch(url, {
+
+    method: "POST",
+
+    headers: {
+      "Content-Type": "application/json"
+    },
+
+    body: JSON.stringify({
+
+      contents: [
+        {
+          parts: [
+            {
+              text: prompt
+            }
+          ]
+        }
+      ]
+
+    })
+
+  });
+
+  const data = await response.json();
+
+  if (!response.ok) {
+
+    const error = new Error(
+      data?.error?.message ||
+      "Gemini request failed."
+    );
+
+    error.status = response.status;
+
+    throw error;
+
+  }
+
+  const answer =
+    data?.candidates?.[0]?.content?.parts
+      ?.map(part => part.text || "")
+      .join("") || "";
+
+  if (!answer) {
+
+    throw new Error(
+      "Gemini returned an empty response."
+    );
+
+  }
+
+  return answer;
+
+}
+// ===============================
+// OPENROUTER
+// ===============================
+
+async function askOpenRouter(prompt) {
+
+  if (!OPENROUTER_API_KEY) {
+
+    throw new Error(
+      "OPENROUTER_API_KEY is not configured."
+    );
+
+  }
+
+  const response = await fetch(
+    "https://openrouter.ai/api/v1/chat/completions",
+    {
+
+      method: "POST",
+
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization":
+          "Bearer " + OPENROUTER_API_KEY
+      },
+
+      body: JSON.stringify({
+
+        model: OPENROUTER_MODEL,
+
+        messages: [
+          {
+            role: "system",
+            content:
+              "You are A² Builder, an AI coding agent. Generate working websites and applications from user instructions."
+          },
+          {
+            role: "user",
+            content: prompt
+          }
+        ]
+
+      })
+
+    }
+  );
+
+  const data = await response.json();
+
+  if (!response.ok) {
+
+    const error = new Error(
+      data?.error?.message ||
+      "OpenRouter request failed."
+    );
+
+    error.status = response.status;
+
+    throw error;
+
+  }
+
+  const answer =
+    data?.choices?.[0]?.message?.content || "";
+
+  if (!answer) {
+
+    throw new Error(
+      "OpenRouter returned an empty response."
+    );
+
+  }
+
+  return answer;
+
+}
+
+
+// ===============================
+// AUTOMATIC AI
+// ===============================
+
+async function askAI(prompt) {
+
+  try {
+
+    console.log("A² Builder: Trying Gemini...");
+
+    const answer =
+      await askGemini(prompt);
+
+    console.log(
+      "A² Builder: Gemini succeeded."
+    );
+
+    return {
+      answer,
+      provider: "gemini"
+    };
+
+  } catch (geminiError) {
+
+    console.log(
+      "Gemini unavailable:",
+      geminiError.message
+    );
+
+    console.log(
+      "A² Builder: Switching to OpenRouter..."
+    );
+
+    const answer =
+      await askOpenRouter(prompt);
+
+    console.log(
+      "A² Builder: OpenRouter succeeded."
+    );
+
+    return {
+      answer,
+      provider: "openrouter"
+    };
+
+  }
+
+              }
+// ===============================
+// AI ENDPOINT
 // ===============================
 
 app.post("/api/ai", async (req, res) => {
+
   try {
-    const { prompt, provider = "gemini" } = req.body;
 
-    if (!prompt || typeof prompt !== "string") {
+    const prompt = req.body?.prompt;
+
+    if (!prompt) {
+
       return res.status(400).json({
-        error: "A prompt is required"
+        error: "Prompt is required."
       });
+
     }
 
-    const systemPrompt = `
-You are A² Builder, an AI coding agent.
-
-Your job is to help users create and modify websites and web applications.
-
-When the user asks you to build something:
-- Understand the complete request.
-- Generate clean HTML, CSS and JavaScript.
-- Make the result responsive for phones and computers.
-- Do not destroy existing functionality when modifying a project.
-- When asked to modify a project, preserve existing files unless changes are necessary.
-- Explain important changes briefly.
-- If images or videos are needed, identify suitable Pexels search terms.
-
-The user may later use A² Builder to publish websites
-or package websites as applications.
-
-User request:
-${prompt}
-`;
-
-    let answer;
-
-    if (provider === "openrouter") {
-      answer = await askOpenRouter(systemPrompt);
-    } else {
-      answer = await askGemini(systemPrompt);
-    }
+    const result = await askAI(prompt);
 
     res.json({
-      success: true,
-      provider,
-      answer
+      answer: result.answer,
+      provider: result.provider
     });
 
   } catch (error) {
-    console.error(error);
+
+    console.error("AI ERROR:", error);
 
     res.status(500).json({
-      success: false,
-      error: error.message
+      error:
+        "Both Gemini and OpenRouter failed.",
+      details: error.message
     });
+
   }
+
 });
 
 
 // ===============================
-// PEXELS PHOTO SEARCH
+// PEXELS PHOTOS
 // ===============================
 
 app.get("/api/pexels/photos", async (req, res) => {
-  try {
-    const query = req.query.q;
 
-    if (!query) {
-      return res.status(400).json({
-        error: "Search query is required"
+  try {
+
+    const query =
+      req.query.q || "technology";
+
+    if (!PEXELS_API_KEY) {
+
+      return res.status(500).json({
+        error: "PEXELS_API_KEY is not configured."
       });
+
     }
 
-    const data = await searchPexelsPhotos(query);
+    const response = await fetch(
+      "https://api.pexels.com/v1/search?query=" +
+      encodeURIComponent(query),
+      {
+        headers: {
+          Authorization: PEXELS_API_KEY
+        }
+      }
+    );
 
-    res.json({
-      success: true,
-      ...data
-    });
+    const data = await response.json();
+
+    if (!response.ok) {
+
+      return res.status(response.status).json(
+        data
+      );
+
+    }
+
+    res.json(data);
 
   } catch (error) {
-    console.error(error);
 
     res.status(500).json({
-      success: false,
       error: error.message
     });
+
   }
+
 });
 
 
 // ===============================
-// PEXELS VIDEO SEARCH
+// PEXELS VIDEOS
 // ===============================
 
 app.get("/api/pexels/videos", async (req, res) => {
-  try {
-    const query = req.query.q;
 
-    if (!query) {
-      return res.status(400).json({
-        error: "Search query is required"
+  try {
+
+    const query =
+      req.query.q || "technology";
+
+    if (!PEXELS_API_KEY) {
+
+      return res.status(500).json({
+        error: "PEXELS_API_KEY is not configured."
       });
+
     }
 
-    const data = await searchPexelsVideos(query);
+    const response = await fetch(
+      "https://api.pexels.com/v1/videos/search?query=" +
+      encodeURIComponent(query),
+      {
+        headers: {
+          Authorization: PEXELS_API_KEY
+        }
+      }
+    );
 
-    res.json({
-      success: true,
-      ...data
-    });
+    const data = await response.json();
+
+    if (!response.ok) {
+
+      return res.status(response.status).json(
+        data
+      );
+
+    }
+
+    res.json(data);
 
   } catch (error) {
-    console.error(error);
 
     res.status(500).json({
-      success: false,
       error: error.message
     });
+
   }
+
 });
 
 
@@ -296,6 +387,13 @@ app.get("/api/pexels/videos", async (req, res) => {
 // START SERVER
 // ===============================
 
+const PORT =
+  process.env.PORT || 10000;
+
 app.listen(PORT, "0.0.0.0", () => {
-  console.log(`A² Builder backend running on port ${PORT}`);
+
+  console.log(
+    `A² Builder Backend running on port ${PORT}`
+  );
+
 });
