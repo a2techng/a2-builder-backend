@@ -269,24 +269,24 @@ async function askOpenRouter(prompt) {
 
 
 // ===============================
-// AUTOMATIC AI
+// AUTOMATIC AI FALLBACK
 // ===============================
 
 async function askAI(prompt) {
 
+  // 1. Try Gemini
   try {
 
     console.log("A² Builder: Trying Gemini...");
 
-    const answer =
-      await askGemini(prompt);
+    const answer = await askGemini(prompt);
 
     console.log(
       "A² Builder: Gemini succeeded."
     );
 
     return {
-      answer,
+      answer: answer,
       provider: "gemini"
     };
 
@@ -297,8 +297,42 @@ async function askAI(prompt) {
       geminiError.message
     );
 
+  }
+
+
+  // 2. Try Mistral
+  try {
+
     console.log(
-      "A² Builder: Switching to OpenRouter..."
+      "A² Builder: Trying Mistral..."
+    );
+
+    const answer = await askMistral(prompt);
+
+    console.log(
+      "A² Builder: Mistral succeeded."
+    );
+
+    return {
+      answer: answer,
+      provider: "mistral"
+    };
+
+  } catch (mistralError) {
+
+    console.log(
+      "Mistral unavailable:",
+      mistralError.message
+    );
+
+  }
+
+
+  // 3. Try OpenRouter
+  try {
+
+    console.log(
+      "A² Builder: Trying OpenRouter..."
     );
 
     const answer =
@@ -309,13 +343,26 @@ async function askAI(prompt) {
     );
 
     return {
-      answer,
+      answer: answer,
       provider: "openrouter"
     };
 
+  } catch (openRouterError) {
+
+    console.log(
+      "OpenRouter unavailable:",
+      openRouterError.message
+    );
+
   }
 
-              }
+
+  // All providers failed
+  throw new Error(
+    "Gemini, Mistral and OpenRouter are currently unavailable."
+  );
+
+}
 // ===============================
 // AI ENDPOINT
 // ===============================
