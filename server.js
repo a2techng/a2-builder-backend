@@ -117,6 +117,80 @@ async function askGemini(prompt) {
 
 }
 // ===============================
+// MISTRAL
+// ===============================
+
+async function askMistral(prompt) {
+
+  if (!MISTRAL_API_KEY) {
+
+    throw new Error(
+      "MISTRAL_API_KEY is not configured."
+    );
+
+  }
+
+  const response = await fetch(
+    "https://api.mistral.ai/v1/chat/completions",
+    {
+      method: "POST",
+
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization":
+          "Bearer " + MISTRAL_API_KEY
+      },
+
+      body: JSON.stringify({
+
+        model: "mistral-small-latest",
+
+        messages: [
+          {
+            role: "system",
+            content:
+              "You are A² Builder, an AI coding agent. Generate working websites and applications from user instructions."
+          },
+          {
+            role: "user",
+            content: prompt
+          }
+        ]
+
+      })
+    }
+  );
+
+  const data = await response.json();
+
+  if (!response.ok) {
+
+    const error = new Error(
+      data?.message ||
+      data?.error?.message ||
+      "Mistral request failed."
+    );
+
+    error.status = response.status;
+
+    throw error;
+
+  }
+
+  const answer =
+    data?.choices?.[0]?.message?.content || "";
+
+  if (!answer) {
+
+    throw new Error(
+      "Mistral returned an empty response."
+    );
+
+  }
+
+  return answer;
+}
+// ===============================
 // OPENROUTER
 // ===============================
 
