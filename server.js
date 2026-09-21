@@ -17,6 +17,9 @@ const GEMINI_API_KEY =
 const OPENROUTER_API_KEY =
   process.env.OPENROUTER_API_KEY;
 
+const MISTRAL_API_KEY =
+  process.env.MISTRAL_API_KEY;
+
 const PEXELS_API_KEY =
   process.env.PEXELS_API_KEY;
 
