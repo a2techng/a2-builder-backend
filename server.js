@@ -121,13 +121,10 @@ async function askGemini(prompt) {
 // ===============================
 
 async function askMistral(prompt) {
-
   if (!MISTRAL_API_KEY) {
-
     throw new Error(
       "MISTRAL_API_KEY is not configured."
     );
-
   }
 
   const response = await fetch(
@@ -142,29 +139,33 @@ async function askMistral(prompt) {
       },
 
       body: JSON.stringify({
-
         model: "mistral-small-latest",
 
         messages: [
           {
             role: "system",
             content:
-              "You are A² Builder, an AI coding agent. Generate working websites and applications from user instructions."
+              "You are A² Builder, an AI coding agent. Generate complete, working websites and applications from user instructions. Return useful code and explanations when appropriate."
           },
           {
             role: "user",
             content: prompt
           }
-        ]
+        ],
 
+        temperature: 0.3
       })
     }
   );
 
   const data = await response.json();
 
-  if (!response.ok) {
+  console.log(
+    "Mistral response status:",
+    response.status
+  );
 
+  if (!response.ok) {
     const error = new Error(
       data?.message ||
       data?.error?.message ||
@@ -174,18 +175,15 @@ async function askMistral(prompt) {
     error.status = response.status;
 
     throw error;
-
   }
 
   const answer =
     data?.choices?.[0]?.message?.content || "";
 
   if (!answer) {
-
     throw new Error(
       "Mistral returned an empty response."
     );
-
   }
 
   return answer;
@@ -274,63 +272,58 @@ async function askOpenRouter(prompt) {
 
 async function askAI(prompt) {
 
-  // 1. Try Gemini
+  // =========================
+  // 1. GEMINI
+  // =========================
   try {
-
     console.log("A² Builder: Trying Gemini...");
 
     const answer = await askGemini(prompt);
 
-    console.log(
-      "A² Builder: Gemini succeeded."
-    );
+    console.log("A² Builder: Gemini succeeded.");
 
     return {
       answer: answer,
       provider: "gemini"
     };
 
-  } catch (geminiError) {
+  } catch (error) {
 
     console.log(
       "Gemini unavailable:",
-      geminiError.message
+      error.message
     );
-
   }
 
 
-  // 2. Try Mistral
+  // =========================
+  // 2. MISTRAL
+  // =========================
   try {
-
-    console.log(
-      "A² Builder: Trying Mistral..."
-    );
+    console.log("A² Builder: Trying Mistral...");
 
     const answer = await askMistral(prompt);
 
-    console.log(
-      "A² Builder: Mistral succeeded."
-    );
+    console.log("A² Builder: Mistral succeeded.");
 
     return {
       answer: answer,
       provider: "mistral"
     };
 
-  } catch (mistralError) {
+  } catch (error) {
 
     console.log(
       "Mistral unavailable:",
-      mistralError.message
+      error.message
     );
-
   }
 
 
-  // 3. Try OpenRouter
+  // =========================
+  // 3. OPENROUTER
+  // =========================
   try {
-
     console.log(
       "A² Builder: Trying OpenRouter..."
     );
@@ -347,41 +340,90 @@ async function askAI(prompt) {
       provider: "openrouter"
     };
 
-  } catch (openRouterError) {
+  } catch (error) {
 
     console.log(
       "OpenRouter unavailable:",
-      openRouterError.message
+      error.message
     );
-
   }
 
 
-  // All providers failed
+  // =========================
+  // ALL FAILED
+  // =========================
+
   throw new Error(
     "Gemini, Mistral and OpenRouter are currently unavailable."
   );
-
 }
 // ===============================
 // AI ENDPOINT
 // ===============================
 
 app.post("/api/ai", async (req, res) => {
-
   try {
-
     const prompt = req.body?.prompt;
+    const provider = req.body?.provider || "auto";
 
     if (!prompt) {
-
       return res.status(400).json({
         error: "Prompt is required."
       });
-
     }
 
-    const result = await askAI(prompt);
+    console.log(
+      "A² Builder request:",
+      provider
+    );
+
+    let result;
+
+    // =========================
+    // GEMINI ONLY
+    // =========================
+    if (provider === "gemini") {
+      console.log("Using Gemini...");
+
+      result = {
+        answer: await askGemini(prompt),
+        provider: "gemini"
+      };
+    }
+
+    // =========================
+    // MISTRAL ONLY
+    // =========================
+    else if (provider === "mistral") {
+      console.log("Using Mistral...");
+
+      result = {
+        answer: await askMistral(prompt),
+        provider: "mistral"
+      };
+    }
+
+    // =========================
+    // OPENROUTER ONLY
+    // =========================
+    else if (provider === "openrouter") {
+      console.log("Using OpenRouter...");
+
+      result = {
+        answer: await askOpenRouter(prompt),
+        provider: "openrouter"
+      };
+    }
+
+    // =========================
+    // AUTO
+    // Gemini → Mistral → OpenRouter
+    // =========================
+    else {
+      console.log("Using automatic AI fallback...");
+
+      result = await askAI(prompt);
+    }
 
     res.json({
       answer: result.answer,
@@ -390,16 +432,16 @@ app.post("/api/ai", async (req, res) => {
 
   } catch (error) {
 
-    console.error("AI ERROR:", error);
+    console.error(
+      "AI ERROR:",
+      error
+    );
 
     res.status(500).json({
-      error:
-        "Both Gemini and OpenRouter failed.",
+      error: "AI provider failed.",
       details: error.message
     });
-
   }
-
 });
 
 
