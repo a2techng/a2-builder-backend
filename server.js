@@ -269,12 +269,11 @@ async function askOpenRouter(prompt) {
 // ===============================
 // AUTOMATIC AI FALLBACK
 // ===============================
-
 async function askAI(prompt) {
 
-  // =========================
-  // 1. GEMINI
-  // =========================
+  const errors = [];
+
+  // GEMINI
   try {
     console.log("A² Builder: Trying Gemini...");
 
@@ -283,22 +282,26 @@ async function askAI(prompt) {
     console.log("A² Builder: Gemini succeeded.");
 
     return {
-      answer: answer,
+      answer,
       provider: "gemini"
     };
 
   } catch (error) {
+    console.error(
+      "GEMINI ERROR:",
+      error.message,
+      "STATUS:",
+      error.status || "unknown"
+    );
 
-    console.log(
-      "Gemini unavailable:",
+    errors.push(
+      "Gemini: " +
       error.message
     );
   }
 
 
-  // =========================
-  // 2. MISTRAL
-  // =========================
+  // MISTRAL
   try {
     console.log("A² Builder: Trying Mistral...");
 
@@ -307,26 +310,28 @@ async function askAI(prompt) {
     console.log("A² Builder: Mistral succeeded.");
 
     return {
-      answer: answer,
+      answer,
       provider: "mistral"
     };
 
   } catch (error) {
+    console.error(
+      "MISTRAL ERROR:",
+      error.message,
+      "STATUS:",
+      error.status || "unknown"
+    );
 
-    console.log(
-      "Mistral unavailable:",
+    errors.push(
+      "Mistral: " +
       error.message
     );
   }
 
 
-  // =========================
-  // 3. OPENROUTER
-  // =========================
+  // OPENROUTER
   try {
-    console.log(
-      "A² Builder: Trying OpenRouter..."
-    );
+    console.log("A² Builder: Trying OpenRouter...");
 
     const answer =
       await askOpenRouter(prompt);
@@ -336,25 +341,28 @@ async function askAI(prompt) {
     );
 
     return {
-      answer: answer,
+      answer,
       provider: "openrouter"
     };
 
   } catch (error) {
+    console.error(
+      "OPENROUTER ERROR:",
+      error.message,
+      "STATUS:",
+      error.status || "unknown"
+    );
 
-    console.log(
-      "OpenRouter unavailable:",
+    errors.push(
+      "OpenRouter: " +
       error.message
     );
   }
 
 
-  // =========================
   // ALL FAILED
-  // =========================
-
   throw new Error(
-    "Gemini, Mistral and OpenRouter are currently unavailable."
+    errors.join("\n")
   );
 }
 // ===============================
@@ -551,7 +559,7 @@ app.get("/api/pexels/videos", async (req, res) => {
 
 // ===============================
 // START SERVER
-// ===============================
+// ==============================
 
 const PORT =
   process.env.PORT || 10000;
