@@ -4,149 +4,133 @@ const cors = require("cors");
 const app = express();
 
 app.use(cors());
-app.use(express.json({ limit: "2mb" }));
+app.use(express.json({ limit: "10mb" }));
 
 
-// ===============================
-// API KEYS
-// ===============================
+// ==========================================
+// A² BUILDER — API KEYS
+// ==========================================
 
 const GEMINI_API_KEY =
   process.env.GEMINI_API_KEY;
 
+const MISTRAL_API_KEY =
+  process.env.MISTRAL_API_KEY;
+
 const OPENROUTER_API_KEY =
   process.env.OPENROUTER_API_KEY;
 
-const MISTRAL_API_KEY =
-  process.env.MISTRAL_API_KEY;
+const GROQ_API_KEY =
+  process.env.GROQ_API_KEY;
+
+const CEREBRAS_API_KEY =
+  process.env.CEREBRAS_API_KEY;
+
+const NVIDIA_API_KEY =
+  process.env.NVIDIA_API_KEY;
+
+const COHERE_API_KEY =
+  process.env.COHERE_API_KEY;
+
+const FREEAI_API_KEY =
+  process.env.FREEAI_API_KEY;
+
+const CLOUDFLARE_API_TOKEN =
+  process.env.CLOUDFLARE_API_TOKEN;
 
 const PEXELS_API_KEY =
   process.env.PEXELS_API_KEY;
 
-const OPENROUTER_MODEL =
-  process.env.OPENROUTER_MODEL ||
-  "openrouter/auto";
+
+// ==========================================
+// CONFIGURATION
+// ==========================================
+
+const SYSTEM_PROMPT = `
+You are A² Builder, an AI coding assistant.
+
+Help the user create websites and applications
+from their instructions.
+
+Generate clean, complete and working code.
+When code is requested, make it practical and
+ready to use.
+
+Be clear and helpful.
+`;
 
 
-// ===============================
+// ==========================================
 // HEALTH CHECK
-// ===============================
+// ==========================================
 
 app.get("/", (req, res) => {
 
   res.json({
     name: "A² Builder Backend",
     status: "online",
-    version: "1.0.0"
+    version: "2.0.0",
+    providers: 9
   });
 
 });
 
 
-// ===============================
-// GEMINI
-// ===============================
+// ==========================================
+// UTILITY
+// ==========================================
 
-async function askGemini(prompt) {
+function checkKey(key, name) {
 
-  if (!GEMINI_API_KEY) {
-
+  if (!key) {
     throw new Error(
-      "GEMINI_API_KEY is not configured."
+      name + " is not configured."
     );
-
   }
-
-  const url =
-    "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key=" +
-    GEMINI_API_KEY;
-
-  const response = await fetch(url, {
-
-    method: "POST",
-
-    headers: {
-      "Content-Type": "application/json"
-    },
-
-    body: JSON.stringify({
-
-      contents: [
-        {
-          parts: [
-            {
-              text: prompt
-            }
-          ]
-        }
-      ]
-
-    })
-
-  });
-
-  const data = await response.json();
-
-  if (!response.ok) {
-
-    const error = new Error(
-      data?.error?.message ||
-      "Gemini request failed."
-    );
-
-    error.status = response.status;
-
-    throw error;
-
-  }
-
-  const answer =
-    data?.candidates?.[0]?.content?.parts
-      ?.map(part => part.text || "")
-      .join("") || "";
-
-  if (!answer) {
-
-    throw new Error(
-      "Gemini returned an empty response."
-    );
-
-  }
-
-  return answer;
 
 }
-// ===============================
-// MISTRAL
-// ===============================
 
-async function askMistral(prompt) {
-  if (!MISTRAL_API_KEY) {
-    throw new Error(
-      "MISTRAL_API_KEY is not configured."
-    );
-  }
+
+// ==========================================
+// COMMON OPENAI-COMPATIBLE REQUEST
+// ==========================================
+
+async function openAIStyleRequest(
+  url,
+  apiKey,
+  model,
+  prompt,
+  providerName
+) {
+
+  checkKey(
+    apiKey,
+    providerName + "_API_KEY"
+  );
 
   const response = await fetch(
-    "https://api.mistral.ai/v1/chat/completions",
+    url,
     {
       method: "POST",
 
       headers: {
-        "Content-Type": "application/json",
+        "Content-Type":
+          "application/json",
+
         "Authorization":
-          "Bearer " + MISTRAL_API_KEY
+          "Bearer " + apiKey
       },
 
       body: JSON.stringify({
-        model: "mistral-small-latest",
+
+        model: model,
 
         messages: [
           {
             role: "system",
-            content:
-              "You are A² Builder, an AI coding agent. Generate complete, working websites and applications from user instructions. Return useful code and explanations when appropriate."
+            content: SYSTEM_PROMPT
           },
+
           {
             role: "user",
             content: prompt
@@ -154,420 +138,202 @@ async function askMistral(prompt) {
         ],
 
         temperature: 0.3
+
       })
     }
   );
 
-  const data = await response.json();
-
-  console.log(
-    "Mistral response status:",
-    response.status
-  );
+  const data =
+    await response.json();
 
   if (!response.ok) {
-    const error = new Error(
-      data?.message ||
-      data?.error?.message ||
-      "Mistral request failed."
-    );
 
-    error.status = response.status;
+    const error =
+      new Error(
+        data?.error?.message ||
+        data?.message ||
+        providerName +
+        " request failed."
+      );
+
+    error.status =
+      response.status;
 
     throw error;
   }
 
   const answer =
-    data?.choices?.[0]?.message?.content || "";
+    data?.choices?.[0]?.message?.content ||
+    "";
 
   if (!answer) {
+
     throw new Error(
-      "Mistral returned an empty response."
+      providerName +
+      " returned an empty response."
     );
+
   }
 
   return answer;
 }
-// ===============================
-// OPENROUTER
-// ===============================
+// ==========================================
+// PROVIDER 1 — GEMINI
+// ==========================================
 
-async function askOpenRouter(prompt) {
+async function askGemini(prompt) {
 
-  if (!OPENROUTER_API_KEY) {
+  checkKey(
+    GEMINI_API_KEY,
+    "GEMINI"
+  );
 
-    throw new Error(
-      "OPENROUTER_API_KEY is not configured."
-    );
+  const url =
+    "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key=" +
+    GEMINI_API_KEY;
 
-  }
-
-  const response = await fetch(
-    "https://openrouter.ai/api/v1/chat/completions",
-    {
+  const response =
+    await fetch(url, {
 
       method: "POST",
 
       headers: {
-        "Content-Type": "application/json",
-        "Authorization":
-          "Bearer " + OPENROUTER_API_KEY
+        "Content-Type":
+          "application/json"
       },
 
       body: JSON.stringify({
 
-        model: OPENROUTER_MODEL,
-
-        messages: [
+        contents: [
           {
-            role: "system",
-            content:
-              "You are A² Builder, an AI coding agent. Generate working websites and applications from user instructions."
-          },
-          {
-            role: "user",
-            content: prompt
+            parts: [
+              {
+                text:
+                  SYSTEM_PROMPT +
+                  "\n\nUser request:\n" +
+                  prompt
+              }
+            ]
           }
         ]
 
       })
+    });
 
-    }
-  );
-
-  const data = await response.json();
+  const data =
+    await response.json();
 
   if (!response.ok) {
 
-    const error = new Error(
-      data?.error?.message ||
-      "OpenRouter request failed."
-    );
+    const error =
+      new Error(
+        data?.error?.message ||
+        "Gemini request failed."
+      );
 
-    error.status = response.status;
+    error.status =
+      response.status;
 
     throw error;
-
   }
 
   const answer =
-    data?.choices?.[0]?.message?.content || "";
+    data?.candidates?.[0]
+      ?.content?.parts
+      ?.map(part => part.text || "")
+      .join("") ||
+    "";
 
   if (!answer) {
 
     throw new Error(
-      "OpenRouter returned an empty response."
+      "Gemini returned an empty response."
     );
-
   }
 
   return answer;
-
 }
 
 
-// ===============================
-// AUTOMATIC AI FALLBACK
-// ===============================
-async function askAI(prompt) {
+// ==========================================
+// PROVIDER 2 — MISTRAL
+// ==========================================
 
-  const errors = [];
+async function askMistral(prompt) {
 
-  // GEMINI
-  try {
-    console.log("A² Builder: Trying Gemini...");
+  return openAIStyleRequest(
 
-    const answer = await askGemini(prompt);
+    "https://api.mistral.ai/v1/chat/completions",
 
-    console.log("A² Builder: Gemini succeeded.");
+    MISTRAL_API_KEY,
 
-    return {
-      answer,
-      provider: "gemini"
-    };
+    "mistral-small-latest",
 
-  } catch (error) {
-    console.error(
-      "GEMINI ERROR:",
-      error.message,
-      "STATUS:",
-      error.status || "unknown"
-    );
+    prompt,
 
-    errors.push(
-      "Gemini: " +
-      error.message
-    );
-  }
-
-
-  // MISTRAL
-  try {
-    console.log("A² Builder: Trying Mistral...");
-
-    const answer = await askMistral(prompt);
-
-    console.log("A² Builder: Mistral succeeded.");
-
-    return {
-      answer,
-      provider: "mistral"
-    };
-
-  } catch (error) {
-    console.error(
-      "MISTRAL ERROR:",
-      error.message,
-      "STATUS:",
-      error.status || "unknown"
-    );
-
-    errors.push(
-      "Mistral: " +
-      error.message
-    );
-  }
-
-
-  // OPENROUTER
-  try {
-    console.log("A² Builder: Trying OpenRouter...");
-
-    const answer =
-      await askOpenRouter(prompt);
-
-    console.log(
-      "A² Builder: OpenRouter succeeded."
-    );
-
-    return {
-      answer,
-      provider: "openrouter"
-    };
-
-  } catch (error) {
-    console.error(
-      "OPENROUTER ERROR:",
-      error.message,
-      "STATUS:",
-      error.status || "unknown"
-    );
-
-    errors.push(
-      "OpenRouter: " +
-      error.message
-    );
-  }
-
-
-  // ALL FAILED
-  throw new Error(
-    errors.join("\n")
+    "MISTRAL"
   );
 }
-// ===============================
-// AI ENDPOINT
-// ===============================
-
-app.post("/api/ai", async (req, res) => {
-  try {
-    const prompt = req.body?.prompt;
-    const provider = req.body?.provider || "auto";
-
-    if (!prompt) {
-      return res.status(400).json({
-        error: "Prompt is required."
-      });
-    }
-
-    console.log(
-      "A² Builder request:",
-      provider
-    );
-
-    let result;
-
-    // =========================
-    // GEMINI ONLY
-    // =========================
-    if (provider === "gemini") {
-      console.log("Using Gemini...");
-
-      result = {
-        answer: await askGemini(prompt),
-        provider: "gemini"
-      };
-    }
-
-    // =========================
-    // MISTRAL ONLY
-    // =========================
-    else if (provider === "mistral") {
-      console.log("Using Mistral...");
-
-      result = {
-        answer: await askMistral(prompt),
-        provider: "mistral"
-      };
-    }
-
-    // =========================
-    // OPENROUTER ONLY
-    // =========================
-    else if (provider === "openrouter") {
-      console.log("Using OpenRouter...");
-
-      result = {
-        answer: await askOpenRouter(prompt),
-        provider: "openrouter"
-      };
-    }
-
-    // =========================
-    // AUTO
-    // Gemini → Mistral → OpenRouter
-    // =========================
-    else {
-      console.log("Using automatic AI fallback...");
-
-      result = await askAI(prompt);
-    }
-
-    res.json({
-      answer: result.answer,
-      provider: result.provider
-    });
-
-  } catch (error) {
-
-    console.error(
-      "AI ERROR:",
-      error
-    );
-
-    res.status(500).json({
-      error: "AI provider failed.",
-      details: error.message
-    });
-  }
-});
 
 
-// ===============================
-// PEXELS PHOTOS
-// ===============================
+// ==========================================
+// PROVIDER 3 — OPENROUTER
+// ==========================================
 
-app.get("/api/pexels/photos", async (req, res) => {
+async function askOpenRouter(prompt) {
 
-  try {
+  return openAIStyleRequest(
 
-    const query =
-      req.query.q || "technology";
+    "https://openrouter.ai/api/v1/chat/completions",
 
-    if (!PEXELS_API_KEY) {
+    OPENROUTER_API_KEY,
 
-      return res.status(500).json({
-        error: "PEXELS_API_KEY is not configured."
-      });
+    "openrouter/auto",
 
-    }
+    prompt,
 
-    const response = await fetch(
-      "https://api.pexels.com/v1/search?query=" +
-      encodeURIComponent(query),
-      {
-        headers: {
-          Authorization: PEXELS_API_KEY
-        }
-      }
-    );
-
-    const data = await response.json();
-
-    if (!response.ok) {
-
-      return res.status(response.status).json(
-        data
-      );
-
-    }
-
-    res.json(data);
-
-  } catch (error) {
-
-    res.status(500).json({
-      error: error.message
-    });
-
-  }
-
-});
-
-
-// ===============================
-// PEXELS VIDEOS
-// ===============================
-
-app.get("/api/pexels/videos", async (req, res) => {
-
-  try {
-
-    const query =
-      req.query.q || "technology";
-
-    if (!PEXELS_API_KEY) {
-
-      return res.status(500).json({
-        error: "PEXELS_API_KEY is not configured."
-      });
-
-    }
-
-    const response = await fetch(
-      "https://api.pexels.com/v1/videos/search?query=" +
-      encodeURIComponent(query),
-      {
-        headers: {
-          Authorization: PEXELS_API_KEY
-        }
-      }
-    );
-
-    const data = await response.json();
-
-    if (!response.ok) {
-
-      return res.status(response.status).json(
-        data
-      );
-
-    }
-
-    res.json(data);
-
-  } catch (error) {
-
-    res.status(500).json({
-      error: error.message
-    });
-
-  }
-
-});
-
-
-// ===============================
-// START SERVER
-// ==============================
-
-const PORT =
-  process.env.PORT || 10000;
-
-app.listen(PORT, "0.0.0.0", () => {
-
-  console.log(
-    `A² Builder Backend running on port ${PORT}`
+    "OPENROUTER"
   );
+}
 
-});
+
+// ==========================================
+// PROVIDER 4 — GROQ
+// ==========================================
+
+async function askGroq(prompt) {
+
+  return openAIStyleRequest(
+
+    "https://api.groq.com/openai/v1/chat/completions",
+
+    GROQ_API_KEY,
+
+    "llama-3.3-70b-versatile",
+
+    prompt,
+
+    "GROQ"
+  );
+}
+
+
+// ==========================================
+// PROVIDER 5 — CEREBRAS
+// ==========================================
+
+async function askCerebras(prompt) {
+
+  return openAIStyleRequest(
+
+    "https://api.cerebras.ai/v1/chat/completions",
+
+    CEREBRAS_API_KEY,
+
+    "llama-3.3-70b",
+
+    prompt,
+
+    "CEREBRAS"
+  );
+  }
