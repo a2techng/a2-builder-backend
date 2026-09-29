@@ -1,145 +1,458 @@
+"use strict";
+
+require("dotenv").config();
+
 const express = require("express");
 const cors = require("cors");
+const fetch = require("node-fetch");
 
 const app = express();
 
+const PORT = process.env.PORT || 5000;
+
+// ======================================================
+// A² BUILDER BACKEND
+// VERSION 3.0
+// ======================================================
+
+// ------------------------------------------------------
+// MIDDLEWARE
+// ------------------------------------------------------
+
 app.use(cors());
-app.use(express.json({ limit: "10mb" }));
 
+app.use(
+  express.json({
+    limit: "10mb"
+  })
+);
 
-// ==========================================
-// A² BUILDER — API KEYS
-// ==========================================
+// ------------------------------------------------------
+// GLOBAL CONFIGURATION
+// ------------------------------------------------------
 
-const GEMINI_API_KEY =
-  process.env.GEMINI_API_KEY;
+const CONFIG = {
 
-const MISTRAL_API_KEY =
-  process.env.MISTRAL_API_KEY;
+  // Maximum time an external API request can run
+  timeout: Number(
+    process.env.AI_TIMEOUT || 60000
+  ),
 
-const OPENROUTER_API_KEY =
-  process.env.OPENROUTER_API_KEY;
+  // ----------------------------------------------------
+  // GEMINI
+  // ----------------------------------------------------
 
-const GROQ_API_KEY =
-  process.env.GROQ_API_KEY;
+  gemini: {
+    key: process.env.GEMINI_API_KEY,
 
-const CEREBRAS_API_KEY =
-  process.env.CEREBRAS_API_KEY;
+    model:
+      process.env.GEMINI_MODEL ||
+      "gemini-2.5-flash"
+  },
 
-const NVIDIA_API_KEY =
-  process.env.NVIDIA_API_KEY;
+  // ----------------------------------------------------
+  // OPENROUTER
+  // ----------------------------------------------------
 
-const COHERE_API_KEY =
-  process.env.COHERE_API_KEY;
+  openrouter: {
+    key:
+      process.env.OPENROUTER_API_KEY,
 
-const FREEAI_API_KEY =
-  process.env.FREEAI_API_KEY;
+    model:
+      process.env.OPENROUTER_MODEL ||
+      "openai/gpt-oss-20b"
+  },
 
-const CLOUDFLARE_API_TOKEN =
-  process.env.CLOUDFLARE_API_TOKEN;
+  // ----------------------------------------------------
+  // MISTRAL
+  // ----------------------------------------------------
 
-const PEXELS_API_KEY =
-  process.env.PEXELS_API_KEY;
+  mistral: {
+    key:
+      process.env.MISTRAL_API_KEY,
 
+    model:
+      process.env.MISTRAL_MODEL ||
+      "mistral-small-latest"
+  },
 
-// ==========================================
-// CONFIGURATION
-// ==========================================
+  // ----------------------------------------------------
+  // GROQ
+  // ----------------------------------------------------
 
-const SYSTEM_PROMPT = `
-You are A² Builder, an AI coding assistant.
+  groq: {
+    key:
+      process.env.GROQ_API_KEY,
 
-Help the user create websites and applications
-from their instructions.
+    model:
+      process.env.GROQ_MODEL ||
+      "llama-3.3-70b-versatile"
+  },
 
-Generate clean, complete and working code.
-When code is requested, make it practical and
-ready to use.
+  // ----------------------------------------------------
+  // CEREBRAS
+  // ----------------------------------------------------
 
-Be clear and helpful.
-`;
+  cerebras: {
+    key:
+      process.env.CEREBRAS_API_KEY,
 
+    model:
+      process.env.CEREBRAS_MODEL ||
+      "llama-3.3-70b"
+  },
 
-// ==========================================
-// HEALTH CHECK
-// ==========================================
+  // ----------------------------------------------------
+  // TOGETHER AI
+  // ----------------------------------------------------
+
+  together: {
+    key:
+      process.env.TOGETHER_API_KEY,
+
+    model:
+      process.env.TOGETHER_MODEL ||
+      "meta-llama/Llama-3.3-70B-Instruct-Turbo"
+  },
+
+  // ----------------------------------------------------
+  // COHERE
+  // ----------------------------------------------------
+
+  cohere: {
+    key:
+      process.env.COHERE_API_KEY,
+
+    model:
+      process.env.COHERE_MODEL ||
+      "command-a-plus-05-2026"
+  },
+
+  // ----------------------------------------------------
+  // FIREWORKS AI
+  // ----------------------------------------------------
+
+  fireworks: {
+    key:
+      process.env.FIREWORKS_API_KEY,
+
+    model:
+      process.env.FIREWORKS_MODEL ||
+      "accounts/fireworks/models/deepseek-v4-flash"
+  },
+
+  // ----------------------------------------------------
+  // PEXELS
+  // ----------------------------------------------------
+
+  pexels: {
+    key:
+      process.env.PEXELS_API_KEY
+  }
+};
+
+// ======================================================
+// BASIC HELPERS
+// ======================================================
+
+function hasKey(value) {
+
+  return (
+    typeof value === "string" &&
+    value.trim().length > 0
+  );
+
+}
+
+// ======================================================
+// GET CONFIGURED AI PROVIDERS
+// ======================================================
+
+function getConfiguredProviders() {
+
+  const providers = [];
+
+  if (hasKey(CONFIG.gemini.key)) {
+    providers.push("gemini");
+  }
+
+  if (hasKey(CONFIG.openrouter.key)) {
+    providers.push("openrouter");
+  }
+
+  if (hasKey(CONFIG.mistral.key)) {
+    providers.push("mistral");
+  }
+
+  if (hasKey(CONFIG.groq.key)) {
+    providers.push("groq");
+  }
+
+  if (hasKey(CONFIG.cerebras.key)) {
+    providers.push("cerebras");
+  }
+
+  if (hasKey(CONFIG.together.key)) {
+    providers.push("together");
+  }
+
+  if (hasKey(CONFIG.cohere.key)) {
+    providers.push("cohere");
+  }
+
+  if (hasKey(CONFIG.fireworks.key)) {
+    providers.push("fireworks");
+  }
+
+  return providers;
+}
+
+// ======================================================
+// CLEAN AI OUTPUT
+// ======================================================
+
+function cleanAIOutput(text) {
+
+  if (!text) {
+    return "";
+  }
+
+  let output = String(text).trim();
+
+  // Remove opening markdown code fences
+  output = output.replace(
+    /^```(?:html|javascript|js|node|json)?\s*/i,
+    ""
+  );
+
+  // Remove closing markdown code fence
+  output = output.replace(
+    /\s*```$/i,
+    ""
+  );
+
+  return output.trim();
+
+}
+
+// ======================================================
+// DEMO FALLBACK
+// ======================================================
+
+function demoResponse(prompt, mode = "website") {
+
+  if (mode === "api") {
+
+    return `const express = require("express");
+
+const app = express();
+
+app.use(express.json());
 
 app.get("/", (req, res) => {
-
   res.json({
-    name: "A² Builder Backend",
-    status: "online",
-    version: "2.0.0",
-    providers: 9
+    success: true,
+    message: "A² Builder generated API"
   });
-
 });
 
+app.get("/api/hello", (req, res) => {
+  res.json({
+    success: true,
+    message: "Hello from your generated API!"
+  });
+});
 
-// ==========================================
-// UTILITY
-// ==========================================
+const PORT = process.env.PORT || 3000;
 
-function checkKey(key, name) {
+app.listen(PORT, () => {
+  console.log("Generated API running on port " + PORT);
+});`;
 
-  if (!key) {
-    throw new Error(
-      name + " is not configured."
-    );
+  }
+
+  return `<!DOCTYPE html>
+
+<html lang="en">
+
+<head>
+
+  <meta charset="UTF-8">
+
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1.0"
+  >
+
+  <title>A² Builder Demo</title>
+
+  <script src="https://cdn.tailwindcss.com"></script>
+
+</head>
+
+<body class="bg-slate-950 text-white min-h-screen">
+
+  <main class="min-h-screen flex items-center justify-center p-6">
+
+    <section
+      class="max-w-xl w-full bg-slate-900 border border-slate-700 rounded-3xl p-8 shadow-2xl"
+    >
+
+      <div class="text-5xl mb-5">
+        🚀
+      </div>
+
+      <h1 class="text-3xl font-bold mb-3">
+        A² Builder
+      </h1>
+
+      <p class="text-slate-300 mb-6">
+        AI demo mode is currently active.
+      </p>
+
+      <div
+        class="bg-slate-950 rounded-xl p-4 border border-slate-800"
+      >
+
+        <p class="text-sm text-slate-400 mb-2">
+          Your prompt:
+        </p>
+
+        <p class="text-amber-300 break-words">
+          ${String(prompt)
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")}
+        </p>
+
+      </div>
+
+      <p class="text-sm text-slate-500 mt-6">
+        Configure at least one AI API key on the backend
+        to enable live AI generation.
+      </p>
+
+    </section>
+
+  </main>
+
+</body>
+
+</html>`;
+}
+
+// ======================================================
+// SAFE ERROR MESSAGE
+// ======================================================
+
+function getErrorMessage(error) {
+
+  if (!error) {
+    return "Unknown error";
+  }
+
+  if (error.name === "AbortError") {
+    return "Request timed out.";
+  }
+
+  return (
+    error.message ||
+    "Unknown API error."
+  );
+
+  }
+// ======================================================
+// A² BUILDER — AI PROVIDER CONNECTIONS
+// BATCH 2/6
+// ======================================================
+
+
+// ======================================================
+// REQUEST WITH TIMEOUT
+// ======================================================
+
+async function fetchWithTimeout(url, options = {}) {
+
+  const controller = new AbortController();
+
+  const timeout = setTimeout(() => {
+    controller.abort();
+  }, CONFIG.timeout);
+
+  try {
+
+    return await fetch(url, {
+      ...options,
+      signal: controller.signal
+    });
+
+  } finally {
+
+    clearTimeout(timeout);
+
   }
 
 }
 
 
-// ==========================================
-// COMMON OPENAI-COMPATIBLE REQUEST
-// ==========================================
+// ======================================================
+// GEMINI
+// ======================================================
 
-async function openAIStyleRequest(
-  url,
-  apiKey,
-  model,
-  prompt,
-  providerName
-) {
+async function callGemini(prompt, systemPrompt) {
 
-  checkKey(
-    apiKey,
-    providerName + "_API_KEY"
-  );
+  if (!hasKey(CONFIG.gemini.key)) {
 
-  const response = await fetch(
+    throw new Error(
+      "Gemini API key is not configured."
+    );
+
+  }
+
+  const url =
+    "https://generativelanguage.googleapis.com/v1beta/models/" +
+    `${CONFIG.gemini.model}:generateContent` +
+    `?key=${CONFIG.gemini.key}`;
+
+  const response = await fetchWithTimeout(
     url,
     {
+
       method: "POST",
 
       headers: {
-        "Content-Type":
-          "application/json",
-
-        "Authorization":
-          "Bearer " + apiKey
+        "Content-Type": "application/json"
       },
 
       body: JSON.stringify({
 
-        model: model,
+        systemInstruction: {
 
-        messages: [
-          {
-            role: "system",
-            content: SYSTEM_PROMPT
-          },
+          parts: [
+            {
+              text: systemPrompt
+            }
+          ]
+
+        },
+
+        contents: [
 
           {
+
             role: "user",
-            content: prompt
-          }
-        ],
 
-        temperature: 0.3
+            parts: [
+              {
+                text: prompt
+              }
+            ]
+
+          }
+
+        ]
 
       })
+
     }
   );
 
@@ -148,263 +461,108 @@ async function openAIStyleRequest(
 
   if (!response.ok) {
 
-    const error =
-      new Error(
-        data?.error?.message ||
-        data?.message ||
-        providerName +
-        " request failed."
-      );
-
-    error.status =
-      response.status;
-
-    throw error;
-  }
-
-  const answer =
-    data?.choices?.[0]?.message?.content ||
-    "";
-
-  if (!answer) {
-
     throw new Error(
-      providerName +
-      " returned an empty response."
+      data?.error?.message ||
+      `Gemini returned HTTP ${response.status}`
     );
 
   }
 
-  return answer;
-}
-// ==========================================
-// PROVIDER 1 — GEMINI
-// ==========================================
-
-async function askGemini(prompt) {
-
-  checkKey(
-    GEMINI_API_KEY,
-    "GEMINI"
-  );
-
-  const url =
-    "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key=" +
-    GEMINI_API_KEY;
-
-  const response =
-    await fetch(url, {
-
-      method: "POST",
-
-      headers: {
-        "Content-Type":
-          "application/json"
-      },
-
-      body: JSON.stringify({
-
-        contents: [
-          {
-            parts: [
-              {
-                text:
-                  SYSTEM_PROMPT +
-                  "\n\nUser request:\n" +
-                  prompt
-              }
-            ]
-          }
-        ]
-
-      })
-    });
-
-  const data =
-    await response.json();
-
-  if (!response.ok) {
-
-    const error =
-      new Error(
-        data?.error?.message ||
-        "Gemini request failed."
-      );
-
-    error.status =
-      response.status;
-
-    throw error;
-  }
-
-  const answer =
-    data?.candidates?.[0]
-      ?.content?.parts
+  const text =
+    data?.candidates?.[0]?.content?.parts
       ?.map(part => part.text || "")
       .join("") ||
     "";
 
-  if (!answer) {
+  if (!text.trim()) {
 
     throw new Error(
       "Gemini returned an empty response."
     );
+
   }
 
-  return answer;
+  return text;
+
 }
 
 
-// ==========================================
-// PROVIDER 2 — MISTRAL
-// ==========================================
+// ======================================================
+// GENERIC OPENAI-COMPATIBLE PROVIDER
+// ======================================================
 
-async function askMistral(prompt) {
+async function callCompatibleProvider({
 
-  return openAIStyleRequest(
+  name,
 
-    "https://api.mistral.ai/v1/chat/completions",
+  key,
 
-    MISTRAL_API_KEY,
+  model,
 
-    "mistral-small-latest",
+  url,
 
-    prompt,
+  prompt,
 
-    "MISTRAL"
-  );
-}
+  systemPrompt,
 
+  extraHeaders = {}
 
-// ==========================================
-// PROVIDER 3 — OPENROUTER
-// ==========================================
+}) {
 
-async function askOpenRouter(prompt) {
+  if (!hasKey(key)) {
 
-  return openAIStyleRequest(
+    throw new Error(
+      `${name} API key is not configured.`
+    );
 
-    "https://openrouter.ai/api/v1/chat/completions",
-
-    OPENROUTER_API_KEY,
-
-    "openrouter/auto",
-
-    prompt,
-
-    "OPENROUTER"
-  );
-}
-
-
-// ==========================================
-// PROVIDER 4 — GROQ
-// ==========================================
-
-async function askGroq(prompt) {
-
-  return openAIStyleRequest(
-
-    "https://api.groq.com/openai/v1/chat/completions",
-
-    GROQ_API_KEY,
-
-    "llama-3.3-70b-versatile",
-
-    prompt,
-
-    "GROQ"
-  );
-}
-
-
-// ==========================================
-// PROVIDER 5 — CEREBRAS
-// ==========================================
-
-async function askCerebras(prompt) {
-
-  return openAIStyleRequest(
-
-    "https://api.cerebras.ai/v1/chat/completions",
-
-    CEREBRAS_API_KEY,
-
-    "llama-3.3-70b",
-
-    prompt,
-
-    "CEREBRAS"
-  );
   }
-// ==========================================
-// PROVIDER 6 — NVIDIA NIM
-// ==========================================
-
-async function askNvidia(prompt) {
-
-  return openAIStyleRequest(
-
-    "https://integrate.api.nvidia.com/v1/chat/completions",
-
-    NVIDIA_API_KEY,
-
-    "meta/llama-3.1-8b-instruct",
-
-    prompt,
-
-    "NVIDIA"
-  );
-}
-
-
-// ==========================================
-// PROVIDER 7 — COHERE
-// ==========================================
-
-async function askCohere(prompt) {
-
-  checkKey(
-    COHERE_API_KEY,
-    "COHERE"
-  );
 
   const response =
-    await fetch(
-      "https://api.cohere.com/v2/chat",
+    await fetchWithTimeout(
+      url,
       {
 
         method: "POST",
 
         headers: {
+
           "Content-Type":
             "application/json",
 
           "Authorization":
-            "Bearer " +
-            COHERE_API_KEY
+            `Bearer ${key}`,
+
+          ...extraHeaders
+
         },
 
         body: JSON.stringify({
 
-          model:
-            "command-a-03-2025",
+          model,
 
           messages: [
 
             {
+
               role: "system",
+
               content:
-                SYSTEM_PROMPT
+                systemPrompt
+
             },
 
             {
+
               role: "user",
+
               content:
                 prompt
+
             }
 
-          ]
+          ],
+
+          temperature: 0.2
 
         })
 
@@ -416,27 +574,319 @@ async function askCohere(prompt) {
 
   if (!response.ok) {
 
-    const error =
-      new Error(
-        data?.message ||
-        data?.error?.message ||
-        "Cohere request failed."
-      );
+    throw new Error(
 
-    error.status =
-      response.status;
+      data?.error?.message ||
 
-    throw error;
+      data?.message ||
+
+      `${name} returned HTTP ${response.status}`
+
+    );
+
   }
 
-  const answer =
-    data?.message?.content
-      ?.map(item =>
-        item?.text || ""
-      )
-      .join("") || "";
+  const text =
 
-  if (!answer) {
+    data?.choices?.[0]?.message?.content ||
+
+    data?.choices?.[0]?.text ||
+
+    "";
+
+  if (!text.trim()) {
+
+    throw new Error(
+      `${name} returned an empty response.`
+    );
+
+  }
+
+  return text;
+
+}
+
+
+// ======================================================
+// OPENROUTER
+// ======================================================
+
+async function callOpenRouter(
+  prompt,
+  systemPrompt
+) {
+
+  return callCompatibleProvider({
+
+    name: "OpenRouter",
+
+    key:
+      CONFIG.openrouter.key,
+
+    model:
+      CONFIG.openrouter.model,
+
+    url:
+      "https://openrouter.ai/api/v1/chat/completions",
+
+    prompt,
+
+    systemPrompt,
+
+    extraHeaders: {
+
+      "HTTP-Referer":
+        process.env.APP_URL ||
+        "https://a2-builder.app",
+
+      "X-Title":
+        "A² Builder"
+
+    }
+
+  });
+
+}
+
+
+// ======================================================
+// MISTRAL
+// ======================================================
+
+async function callMistral(
+  prompt,
+  systemPrompt
+) {
+
+  return callCompatibleProvider({
+
+    name: "Mistral",
+
+    key:
+      CONFIG.mistral.key,
+
+    model:
+      CONFIG.mistral.model,
+
+    url:
+      "https://api.mistral.ai/v1/chat/completions",
+
+    prompt,
+
+    systemPrompt
+
+  });
+
+}
+
+
+// ======================================================
+// GROQ
+// ======================================================
+
+async function callGroq(
+  prompt,
+  systemPrompt
+) {
+
+  return callCompatibleProvider({
+
+    name: "Groq",
+
+    key:
+      CONFIG.groq.key,
+
+    model:
+      CONFIG.groq.model,
+
+    url:
+      "https://api.groq.com/openai/v1/chat/completions",
+
+    prompt,
+
+    systemPrompt
+
+  });
+
+}
+
+
+// ======================================================
+// CEREBRAS
+// ======================================================
+
+async function callCerebras(
+  prompt,
+  systemPrompt
+) {
+
+  return callCompatibleProvider({
+
+    name: "Cerebras",
+
+    key:
+      CONFIG.cerebras.key,
+
+    model:
+      CONFIG.cerebras.model,
+
+    url:
+      "https://api.cerebras.ai/v1/chat/completions",
+
+    prompt,
+
+    systemPrompt
+
+  });
+
+}
+
+
+// ======================================================
+// TOGETHER AI
+// ======================================================
+
+async function callTogether(
+  prompt,
+  systemPrompt
+) {
+
+  return callCompatibleProvider({
+
+    name: "Together AI",
+
+    key:
+      CONFIG.together.key,
+
+    model:
+      CONFIG.together.model,
+
+    url:
+      "https://api.together.xyz/v1/chat/completions",
+
+    prompt,
+
+    systemPrompt
+
+  });
+
+}
+
+
+// ======================================================
+// COHERE
+// ======================================================
+
+async function callCohere(
+  prompt,
+  systemPrompt
+) {
+
+  if (!hasKey(CONFIG.cohere.key)) {
+
+    throw new Error(
+      "Cohere API key is not configured."
+    );
+
+  }
+
+  const response =
+    await fetchWithTimeout(
+
+      "https://api.cohere.com/v2/chat",
+
+      {
+
+        method: "POST",
+
+        headers: {
+
+          "Content-Type":
+            "application/json",
+
+          "Authorization":
+            `Bearer ${CONFIG.cohere.key}`
+
+        },
+
+        body: JSON.stringify({
+
+          model:
+            CONFIG.cohere.model,
+
+          messages: [
+
+            {
+
+              role: "system",
+
+              content:
+                systemPrompt
+
+            },
+
+            {
+
+              role: "user",
+
+              content:
+                prompt
+
+            }
+
+          ],
+
+          temperature: 0.2
+
+        })
+
+      }
+
+    );
+
+  const data =
+    await response.json();
+
+  if (!response.ok) {
+
+    throw new Error(
+
+      data?.message ||
+
+      data?.error?.message ||
+
+      `Cohere returned HTTP ${response.status}`
+
+    );
+
+  }
+
+  let text = "";
+
+  if (
+    Array.isArray(
+      data?.message?.content
+    )
+  ) {
+
+    text =
+      data.message.content
+        .map(item =>
+          item?.text || ""
+        )
+        .join("");
+
+  } else if (
+    typeof data?.message?.content ===
+    "string"
+  ) {
+
+    text =
+      data.message.content;
+
+  }
+
+  if (!text.trim()) {
 
     throw new Error(
       "Cohere returned an empty response."
@@ -444,360 +894,722 @@ async function askCohere(prompt) {
 
   }
 
-  return answer;
+  return text;
+
 }
 
 
-// ==========================================
-// PROVIDER 8 — FREE.AI
-// ==========================================
+// ======================================================
+// FIREWORKS AI
+// ======================================================
 
-async function askFreeAI(prompt) {
+async function callFireworks(
+  prompt,
+  systemPrompt
+) {
 
-  return openAIStyleRequest(
+  return callCompatibleProvider({
 
-    "https://api.free.ai/v1/chat/completions",
+    name: "Fireworks AI",
 
-    FREEAI_API_KEY,
+    key:
+      CONFIG.fireworks.key,
 
-    "free",
+    model:
+      CONFIG.fireworks.model,
+
+    url:
+      "https://api.fireworks.ai/inference/v1/chat/completions",
 
     prompt,
 
-    "FREEAI"
-  );
+    systemPrompt
+
+  });
+
 }
+// ======================================================
+// A² BUILDER — PROVIDER SELECTION & FALLBACK
+// BATCH 3/6
+// ======================================================
 
 
-// ==========================================
-// PROVIDER 9 — CLOUDFLARE WORKERS AI
-// ==========================================
+// ======================================================
+// ALL AI PROVIDER FUNCTIONS
+// ======================================================
 
-async function askCloudflare(prompt) {
+const PROVIDER_FUNCTIONS = {
 
-  checkKey(
-    CLOUDFLARE_API_TOKEN,
-    "CLOUDFLARE"
-  );
+  gemini:
+    callGemini,
 
-  checkKey(
-    process.env.CLOUDFLARE_ACCOUNT_ID,
-    "CLOUDFLARE_ACCOUNT_ID"
-  );
+  openrouter:
+    callOpenRouter,
 
-  const accountId =
-    process.env.CLOUDFLARE_ACCOUNT_ID;
+  mistral:
+    callMistral,
 
-  const model =
-    "@cf/meta/llama-3.1-8b-instruct";
+  groq:
+    callGroq,
 
-  const url =
-    "https://api.cloudflare.com/client/v4/accounts/" +
-    accountId +
-    "/ai/run/" +
-    model;
+  cerebras:
+    callCerebras,
 
-  const response =
-    await fetch(url, {
+  together:
+    callTogether,
 
-      method: "POST",
+  cohere:
+    callCohere,
 
-      headers: {
+  fireworks:
+    callFireworks
 
-        "Content-Type":
-          "application/json",
+};
 
-        "Authorization":
-          "Bearer " +
-          CLOUDFLARE_API_TOKEN
 
-      },
+// ======================================================
+// AUTOMATIC PROVIDER ORDER
+// ======================================================
 
-      body: JSON.stringify({
+const DEFAULT_PROVIDER_ORDER = [
 
-        messages: [
+  "gemini",
 
-          {
-            role: "system",
-            content: SYSTEM_PROMPT
-          },
+  "mistral",
 
-          {
-            role: "user",
-            content: prompt
-          }
+  "openrouter",
 
-        ]
+  "groq",
 
-      })
+  "cerebras",
 
-    });
+  "together",
 
-  const data =
-    await response.json();
+  "cohere",
 
-  if (!response.ok) {
-
-    const error =
-      new Error(
-        data?.errors?.[0]?.message ||
-        "Cloudflare request failed."
-      );
-
-    error.status =
-      response.status;
-
-    throw error;
-  }
-
-  const answer =
-    data?.result?.response || "";
-
-  if (!answer) {
-
-    throw new Error(
-      "Cloudflare returned an empty response."
-    );
-
-  }
-
-  return answer;
-}  
-// ==========================================
-// PROVIDER LIST
-// ==========================================
-
-const providers = [
-
-  {
-    name: "gemini",
-    fn: askGemini
-  },
-
-  {
-    name: "mistral",
-    fn: askMistral
-  },
-
-  {
-    name: "openrouter",
-    fn: askOpenRouter
-  },
-
-  {
-    name: "groq",
-    fn: askGroq
-  },
-
-  {
-    name: "cerebras",
-    fn: askCerebras
-  },
-
-  {
-    name: "nvidia",
-    fn: askNvidia
-  },
-
-  {
-    name: "cohere",
-    fn: askCohere
-  },
-
-  {
-    name: "freeai",
-    fn: askFreeAI
-  },
-
-  {
-    name: "cloudflare",
-    fn: askCloudflare
-  }
+  "fireworks"
 
 ];
 
 
-// ==========================================
-// AUTOMATIC FALLBACK
-// ==========================================
+// ======================================================
+// GET PROVIDER ORDER
+// ======================================================
 
-async function askAI(prompt) {
+function getProviderOrder(
+  requestedProvider = "auto"
+) {
+
+  const configured =
+    getConfiguredProviders();
+
+
+  // ----------------------------------------------------
+  // USER SPECIFICALLY SELECTED A PROVIDER
+  // ----------------------------------------------------
+
+  if (
+    requestedProvider &&
+    requestedProvider !== "auto"
+  ) {
+
+    if (
+      !PROVIDER_FUNCTIONS[
+        requestedProvider
+      ]
+    ) {
+
+      throw new Error(
+        `Unknown AI provider: ${requestedProvider}`
+      );
+
+    }
+
+
+    if (
+      !configured.includes(
+        requestedProvider
+      )
+    ) {
+
+      throw new Error(
+        `${requestedProvider} is not configured on the server.`
+      );
+
+    }
+
+
+    return [
+      requestedProvider
+    ];
+
+  }
+
+
+  // ----------------------------------------------------
+  // AUTOMATIC MODE
+  // ----------------------------------------------------
+
+  return DEFAULT_PROVIDER_ORDER.filter(
+    provider =>
+      configured.includes(provider)
+  );
+
+}
+
+
+// ======================================================
+// GENERATE USING AI
+// ======================================================
+
+async function generateWithAI({
+
+  prompt,
+
+  provider = "auto",
+
+  systemPrompt,
+
+  mode = "website"
+
+}) {
+
+  const providerOrder =
+    getProviderOrder(provider);
+
+
+  // ----------------------------------------------------
+  // NO API KEYS CONFIGURED
+  // ----------------------------------------------------
+
+  if (
+    providerOrder.length === 0
+  ) {
+
+    return {
+
+      answer:
+        demoResponse(
+          prompt,
+          mode
+        ),
+
+      provider:
+        "demo-fallback",
+
+      fallback:
+        true,
+
+      errors: [
+
+        {
+          provider:
+            "system",
+
+          error:
+            "No AI API keys are configured."
+
+        }
+
+      ]
+
+    };
+
+  }
+
+
+  // ----------------------------------------------------
+  // STORE PROVIDER ERRORS
+  // ----------------------------------------------------
 
   const errors = [];
 
-  for (
-    const provider of providers
-  ) {
 
-    console.log(
-      "A² Builder: Trying " +
-      provider.name +
-      "..."
-    );
+  // ----------------------------------------------------
+  // TRY PROVIDERS ONE BY ONE
+  // ----------------------------------------------------
+
+  for (
+    const providerName
+    of providerOrder
+  ) {
 
     try {
 
-      const answer =
-        await provider.fn(prompt);
-
       console.log(
-        "A² Builder: " +
-        provider.name +
-        " succeeded."
+        `🤖 Trying AI provider: ${providerName}`
       );
 
-      return {
 
-        answer: answer,
+      const providerFunction =
+        PROVIDER_FUNCTIONS[
+          providerName
+        ];
 
-        provider:
-          provider.name
 
-      };
+      if (
+        typeof providerFunction !==
+        "function"
+      ) {
+
+        throw new Error(
+          `Provider function for ${providerName} is unavailable.`
+        );
+
+      }
+
+
+      // ------------------------------------------------
+      // CALL PROVIDER
+      // ------------------------------------------------
+
+      const answer =
+        await providerFunction(
+          prompt,
+          systemPrompt
+        );
+
+
+      // ------------------------------------------------
+      // CHECK RESPONSE
+      // ------------------------------------------------
+
+      if (
+        answer &&
+        String(answer).trim()
+      ) {
+
+        console.log(
+          `✅ ${providerName} succeeded`
+        );
+
+
+        return {
+
+          answer:
+            cleanAIOutput(answer),
+
+          provider:
+            providerName,
+
+          fallback:
+            errors.length > 0,
+
+          errors
+
+        };
+
+      }
+
+
+      throw new Error(
+        `${providerName} returned an empty response.`
+      );
+
 
     } catch (error) {
 
+      const message =
+        getErrorMessage(error);
+
+
       console.error(
-        provider.name.toUpperCase() +
-        " ERROR:",
-        error.message,
-        "STATUS:",
-        error.status ||
-        "unknown"
+        `❌ ${providerName} failed: ${message}`
       );
 
-      errors.push(
 
-        provider.name +
-        ": " +
-        error.message
+      errors.push({
 
-      );
+        provider:
+          providerName,
+
+        error:
+          message
+
+      });
+
+
+      // Continue to the next provider.
+      continue;
 
     }
 
   }
 
 
-  throw new Error(
-    "All AI providers failed:\n" +
-    errors.join("\n")
+  // ----------------------------------------------------
+  // ALL PROVIDERS FAILED
+  // ----------------------------------------------------
+
+  console.error(
+    "❌ All configured AI providers failed."
   );
 
+
+  return {
+
+    answer:
+      demoResponse(
+        prompt,
+        mode
+      ),
+
+    provider:
+      "demo-fallback",
+
+    fallback:
+      true,
+
+    errors
+
+  };
+
+}
+
+
+// ======================================================
+// TEST A SINGLE PROVIDER
+// ======================================================
+
+async function testProvider(
+  providerName
+) {
+
+  const providers =
+    getConfiguredProviders();
+
+
+  if (
+    !providers.includes(
+      providerName
+    )
+  ) {
+
+    return {
+
+      provider:
+        providerName,
+
+      configured:
+        false,
+
+      success:
+        false,
+
+      error:
+        "Provider is not configured."
+
+    };
+
+  }
+
+
+  const testPrompt =
+    "Reply with exactly: A2_BUILDER_TEST_OK";
+
+
+  const testSystem =
+    "You are testing an AI provider. " +
+    "Return only the requested text.";
+
+
+  try {
+
+    const fn =
+      PROVIDER_FUNCTIONS[
+        providerName
+      ];
+
+
+    const answer =
+      await fn(
+        testPrompt,
+        testSystem
+      );
+
+
+    return {
+
+      provider:
+        providerName,
+
+      configured:
+        true,
+
+      success:
+        Boolean(
+          answer &&
+          answer.trim()
+        ),
+
+      response:
+        cleanAIOutput(answer)
+
+    };
+
+
+  } catch (error) {
+
+    return {
+
+      provider:
+        providerName,
+
+      configured:
+        true,
+
+      success:
+        false,
+
+      error:
+        getErrorMessage(error)
+
+    };
+
+  }
+
+}
+
+
+// ======================================================
+// TEST ALL CONFIGURED PROVIDERS
+// ======================================================
+
+async function testAllProviders() {
+
+  const configured =
+    getConfiguredProviders();
+
+
+  const results = [];
+
+
+  for (
+    const provider
+    of DEFAULT_PROVIDER_ORDER
+  ) {
+
+    if (
+      !configured.includes(
+        provider
+      )
+    ) {
+
+      results.push({
+
+        provider,
+
+        configured:
+          false,
+
+        success:
+          false,
+
+        error:
+          "API key not configured."
+
+      });
+
+      continue;
+
     }
-  // ==========================================
-// AI ENDPOINT
-// ==========================================
+
+
+    const result =
+      await testProvider(
+        provider
+      );
+
+
+    results.push(
+      result
+    );
+
+  }
+
+
+  return results;
+
+}
+// ======================================================
+// A² BUILDER — AI API ROUTES
+// BATCH 4/6
+// ======================================================
+
+
+// ======================================================
+// MAIN AI GENERATION ENDPOINT
+// ======================================================
 
 app.post("/api/ai", async (req, res) => {
 
   try {
 
-    const prompt =
-      req.body?.prompt;
+    const {
+      prompt,
+      provider = "auto",
+      mode = "website"
+    } = req.body || {};
 
-    const provider =
-      req.body?.provider || "auto";
 
+    // --------------------------------------------------
+    // VALIDATE PROMPT
+    // --------------------------------------------------
 
-    // --------------------------------------
-    // CHECK PROMPT
-    // --------------------------------------
-
-    if (!prompt) {
+    if (
+      !prompt ||
+      typeof prompt !== "string" ||
+      !prompt.trim()
+    ) {
 
       return res.status(400).json({
 
+        success: false,
+
         error:
-          "Prompt is required."
+          "Prompt parameter is required."
 
       });
 
     }
 
 
-    console.log(
-      "A² Builder request:",
-      provider
-    );
+    // --------------------------------------------------
+    // VALIDATE MODE
+    // --------------------------------------------------
 
+    const allowedModes = [
+      "website",
+      "api"
+    ];
 
-    let result;
-
-
-    // ======================================
-    // AUTOMATIC MODE
-    // ======================================
 
     if (
-      provider === "auto" ||
-      provider === "all" ||
-      !provider
+      !allowedModes.includes(mode)
     ) {
 
-      console.log(
-        "Using 9-provider automatic fallback..."
-      );
+      return res.status(400).json({
 
-      result =
-        await askAI(prompt);
+        success: false,
+
+        error:
+          "Invalid mode. Use 'website' or 'api'."
+
+      });
 
     }
 
 
-    // ======================================
-    // SPECIFIC PROVIDER
-    // ======================================
+    // ==================================================
+    // WEBSITE SYSTEM PROMPT
+    // ==================================================
+
+    let systemPrompt;
+
+
+    if (mode === "website") {
+
+      systemPrompt = `
+
+You are A² Builder AI.
+
+You are an expert frontend web developer.
+
+Your job is to generate complete,
+functional websites and web applications
+from the user's instructions.
+
+IMPORTANT OUTPUT RULES:
+
+1. Return ONLY raw HTML.
+2. Do NOT use Markdown.
+3. Do NOT use triple backticks.
+4. Put CSS inside a <style> tag.
+5. Put JavaScript inside a <script> tag.
+6. Make the website responsive.
+7. Make buttons and interactive elements work.
+8. Use modern HTML, CSS and JavaScript.
+9. Tailwind CSS CDN may be used when useful.
+10. Do not expose API keys or secrets.
+11. Do not invent secret credentials.
+12. Make the interface visually polished.
+13. Make it usable on Android phones.
+14. Use semantic HTML.
+15. Include all required code in one HTML file.
+
+The user's request is:
+
+${prompt}
+
+      `.trim();
+
+    }
+
+
+    // ==================================================
+    // API / BACKEND SYSTEM PROMPT
+    // ==================================================
 
     else {
 
-      const selected =
-        providers.find(
-          item =>
-            item.name.toLowerCase() ===
-            provider.toLowerCase()
-        );
+      systemPrompt = `
 
+You are A² Builder AI.
 
-      if (!selected) {
+You are an expert Node.js backend
+and API developer.
 
-        return res.status(400).json({
+Your job is to generate complete,
+functional backend APIs from the user's request.
 
-          error:
-            "Unknown AI provider.",
+IMPORTANT OUTPUT RULES:
 
-          availableProviders:
-            providers.map(
-              item => item.name
-            )
+1. Return ONLY executable JavaScript.
+2. Do NOT use Markdown.
+3. Do NOT use triple backticks.
+4. Use Node.js.
+5. Use Express when appropriate.
+6. Use express.json().
+7. Create proper REST API routes.
+8. Return JSON responses where appropriate.
+9. Use environment variables for secrets.
+10. NEVER expose API keys.
+11. Do not invent secret credentials.
+12. Include useful comments.
+13. Make the code runnable.
+14. Handle errors properly.
+15. Use process.env.PORT when appropriate.
 
-        });
+The user's request is:
 
-      }
+${prompt}
 
-
-      console.log(
-        "Using selected provider:",
-        selected.name
-      );
-
-
-      result = {
-
-        answer:
-          await selected.fn(prompt),
-
-        provider:
-          selected.name
-
-      };
+      `.trim();
 
     }
 
 
-    // ======================================
-    // SUCCESS
-    // ======================================
+    // ==================================================
+    // GENERATE
+    // ==================================================
+
+    const result =
+      await generateWithAI({
+
+        prompt,
+
+        provider,
+
+        systemPrompt,
+
+        mode
+
+      });
+
+
+    // ==================================================
+    // RESPONSE
+    // ==================================================
 
     return res.json({
 
@@ -807,7 +1619,15 @@ app.post("/api/ai", async (req, res) => {
         result.answer,
 
       provider:
-        result.provider
+        result.provider,
+
+      fallback:
+        result.fallback,
+
+      mode,
+
+      errors:
+        result.errors || []
 
     });
 
@@ -815,7 +1635,7 @@ app.post("/api/ai", async (req, res) => {
   } catch (error) {
 
     console.error(
-      "AI ERROR:",
+      "❌ /api/ai error:",
       error
     );
 
@@ -825,188 +1645,1122 @@ app.post("/api/ai", async (req, res) => {
       success: false,
 
       error:
-        "AI provider failed.",
-
-      details:
-        error.message
+        getErrorMessage(error)
 
     });
 
   }
 
 });
-  // ==========================================
-// PEXELS PHOTOS
-// ==========================================
 
-app.get("/api/pexels/photos", async (req, res) => {
 
-  try {
+// ======================================================
+// PROVIDER STATUS
+// ======================================================
 
-    const query =
-      req.query.q || "technology";
+app.get("/api/providers", (req, res) => {
 
-    if (!PEXELS_API_KEY) {
+  const configured =
+    getConfiguredProviders();
+
+
+  res.json({
+
+    success: true,
+
+
+    totalProviders: 8,
+
+
+    configuredCount:
+      configured.length,
+
+
+    configuredProviders:
+      configured,
+
+
+    providers: {
+
+      gemini: {
+
+        configured:
+          hasKey(CONFIG.gemini.key),
+
+        model:
+          CONFIG.gemini.model
+
+      },
+
+
+      openrouter: {
+
+        configured:
+          hasKey(CONFIG.openrouter.key),
+
+        model:
+          CONFIG.openrouter.model
+
+      },
+
+
+      mistral: {
+
+        configured:
+          hasKey(CONFIG.mistral.key),
+
+        model:
+          CONFIG.mistral.model
+
+      },
+
+
+      groq: {
+
+        configured:
+          hasKey(CONFIG.groq.key),
+
+        model:
+          CONFIG.groq.model
+
+      },
+
+
+      cerebras: {
+
+        configured:
+          hasKey(CONFIG.cerebras.key),
+
+        model:
+          CONFIG.cerebras.model
+
+      },
+
+
+      together: {
+
+        configured:
+          hasKey(CONFIG.together.key),
+
+        model:
+          CONFIG.together.model
+
+      },
+
+
+      cohere: {
+
+        configured:
+          hasKey(CONFIG.cohere.key),
+
+        model:
+          CONFIG.cohere.model
+
+      },
+
+
+      fireworks: {
+
+        configured:
+          hasKey(CONFIG.fireworks.key),
+
+        model:
+          CONFIG.fireworks.model
+
+      }
+
+    }
+
+  });
+
+});
+
+
+// ======================================================
+// TEST ONE AI PROVIDER
+// ======================================================
+
+app.get(
+  "/api/providers/test/:provider",
+  async (req, res) => {
+
+    try {
+
+      const provider =
+        String(
+          req.params.provider || ""
+        ).toLowerCase();
+
+
+      if (
+        !PROVIDER_FUNCTIONS[provider]
+      ) {
+
+        return res.status(400).json({
+
+          success: false,
+
+          error:
+            `Unknown provider: ${provider}`
+
+        });
+
+      }
+
+
+      const result =
+        await testProvider(
+          provider
+        );
+
+
+      return res.json({
+
+        success:
+          result.success,
+
+        result
+
+      });
+
+
+    } catch (error) {
 
       return res.status(500).json({
 
+        success: false,
+
         error:
-          "PEXELS_API_KEY is not configured."
+          getErrorMessage(error)
 
       });
 
     }
-
-    const response =
-      await fetch(
-        "https://api.pexels.com/v1/search?query=" +
-        encodeURIComponent(query),
-        {
-          headers: {
-            Authorization:
-              PEXELS_API_KEY
-          }
-        }
-      );
-
-    const data =
-      await response.json();
-
-    if (!response.ok) {
-
-      return res
-        .status(response.status)
-        .json(data);
-
-    }
-
-    res.json(data);
-
-  } catch (error) {
-
-    console.error(
-      "Pexels photo error:",
-      error
-    );
-
-    res.status(500).json({
-
-      error:
-        error.message
-
-    });
-
-  }
-
-});
-
-
-// ==========================================
-// PEXELS VIDEOS
-// ==========================================
-
-app.get("/api/pexels/videos", async (req, res) => {
-
-  try {
-
-    const query =
-      req.query.q || "technology";
-
-    if (!PEXELS_API_KEY) {
-
-      return res.status(500).json({
-
-        error:
-          "PEXELS_API_KEY is not configured."
-
-      });
-
-    }
-
-    const response =
-      await fetch(
-        "https://api.pexels.com/v1/videos/search?query=" +
-        encodeURIComponent(query),
-        {
-          headers: {
-            Authorization:
-              PEXELS_API_KEY
-          }
-        }
-      );
-
-    const data =
-      await response.json();
-
-    if (!response.ok) {
-
-      return res
-        .status(response.status)
-        .json(data);
-
-    }
-
-    res.json(data);
-
-  } catch (error) {
-
-    console.error(
-      "Pexels video error:",
-      error
-    );
-
-    res.status(500).json({
-
-      error:
-        error.message
-
-    });
-
-  }
-
-});
-
-
-// ==========================================
-// START SERVER
-// ==========================================
-
-const PORT =
-  process.env.PORT || 10000;
-
-app.listen(
-  PORT,
-  "0.0.0.0",
-  () => {
-
-    console.log(
-      "================================"
-    );
-
-    console.log(
-      "A² Builder Backend is running"
-    );
-
-    console.log(
-      "Port:",
-      PORT
-    );
-
-    console.log(
-      "AI Providers:",
-      providers.length
-    );
-
-    console.log(
-      "Providers:",
-      providers
-        .map(p => p.name)
-        .join(" → ")
-    );
-
-    console.log(
-      "================================"
-    );
 
   }
 );
+
+
+// ======================================================
+// TEST ALL AI PROVIDERS
+// ======================================================
+
+app.get(
+  "/api/providers/test",
+  async (req, res) => {
+
+    try {
+
+      console.log(
+        "🧪 Testing all configured AI providers..."
+      );
+
+
+      const results =
+        await testAllProviders();
+
+
+      const working =
+        results.filter(
+          item => item.success
+        );
+
+
+      const failed =
+        results.filter(
+          item =>
+            item.configured &&
+            !item.success
+        );
+
+
+      return res.json({
+
+        success: true,
+
+        totalProviders: 8,
+
+        working:
+          working.length,
+
+        failed:
+          failed.length,
+
+        results
+
+      });
+
+
+    } catch (error) {
+
+      console.error(
+        "❌ Provider test error:",
+        error
+      );
+
+
+      return res.status(500).json({
+
+        success: false,
+
+        error:
+          getErrorMessage(error)
+
+      });
+
+    }
+
+  }
+);
+
+
+// ======================================================
+// ROOT / SERVER INFORMATION
+// ======================================================
+
+app.get("/", (req, res) => {
+
+  res.json({
+
+    success: true,
+
+    name:
+      "A² Builder Backend",
+
+    version:
+      "3.0.0",
+
+    status:
+      "online",
+
+    aiProviders:
+      8,
+
+    configuredProviders:
+      getConfiguredProviders(),
+
+    endpoints: {
+
+      ai:
+        "POST /api/ai",
+
+      providers:
+        "GET /api/providers",
+
+      testProvider:
+        "GET /api/providers/test/:provider",
+
+      testAll:
+        "GET /api/providers/test",
+
+      convertSite:
+        "POST /api/convert-site",
+
+      photos:
+        "GET /api/pexels/photos",
+
+      videos:
+        "GET /api/pexels/videos",
+
+      health:
+        "GET /health"
+
+    }
+
+  });
+
+});
+
+
+// ======================================================
+// HEALTH CHECK
+// ======================================================
+
+app.get("/health", (req, res) => {
+
+  res.json({
+
+    success: true,
+
+    status:
+      "healthy",
+
+    server:
+      "A² Builder Backend",
+
+    version:
+      "3.0.0",
+
+    aiProviders:
+      getConfiguredProviders(),
+
+    aiProviderCount:
+      getConfiguredProviders().length,
+
+    pexels:
+      hasKey(
+        CONFIG.pexels.key
+      )
+
+  });
+
+});
+// ======================================================
+// A² BUILDER — WEBSITE IMPORTER & MEDIA APIs
+// BATCH 5/6
+// ======================================================
+
+
+// ======================================================
+// WEBSITE → A² BUILDER IMPORTER
+// ======================================================
+
+app.post(
+  "/api/convert-site",
+  async (req, res) => {
+
+    try {
+
+      const {
+        url
+      } = req.body || {};
+
+
+      // ------------------------------------------------
+      // CHECK URL
+      // ------------------------------------------------
+
+      if (
+        !url ||
+        typeof url !== "string" ||
+        !url.trim()
+      ) {
+
+        return res.status(400).json({
+
+          success: false,
+
+          error:
+            "Target URL is required."
+
+        });
+
+      }
+
+
+      // ------------------------------------------------
+      // PARSE URL
+      // ------------------------------------------------
+
+      let targetUrl;
+
+      try {
+
+        targetUrl =
+          new URL(
+            url.trim()
+          );
+
+      } catch {
+
+        return res.status(400).json({
+
+          success: false,
+
+          error:
+            "Invalid website URL."
+
+        });
+
+      }
+
+
+      // ------------------------------------------------
+      // ONLY HTTP / HTTPS
+      // ------------------------------------------------
+
+      if (
+        ![
+          "http:",
+          "https:"
+        ].includes(
+          targetUrl.protocol
+        )
+      ) {
+
+        return res.status(400).json({
+
+          success: false,
+
+          error:
+            "Only HTTP and HTTPS websites are supported."
+
+        });
+
+      }
+
+
+      console.log(
+        `🌐 Importing website: ${targetUrl.href}`
+      );
+
+
+      // ------------------------------------------------
+      // FETCH WEBSITE
+      // ------------------------------------------------
+
+      const response =
+        await fetchWithTimeout(
+
+          targetUrl.href,
+
+          {
+
+            method: "GET",
+
+            headers: {
+
+              "User-Agent":
+                "A2-Builder-Website-Importer/3.0",
+
+              "Accept":
+                "text/html,application/xhtml+xml"
+
+            }
+
+          }
+
+        );
+
+
+      if (!response.ok) {
+
+        throw new Error(
+
+          `Website returned HTTP ${response.status}`
+
+        );
+
+      }
+
+
+      // ------------------------------------------------
+      // READ HTML
+      // ------------------------------------------------
+
+      const rawHtml =
+        await response.text();
+
+
+      // ------------------------------------------------
+      // CLEAN IMPORTED HTML
+      // ------------------------------------------------
+
+      const cleanedHtml =
+        rawHtml
+
+          // Remove script tags
+          .replace(
+
+            /<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi,
+
+            ""
+
+          )
+
+          // Remove stylesheet link tags
+          .replace(
+
+            /<link[^>]*rel=["']stylesheet["'][^>]*>/gi,
+
+            ""
+
+          )
+
+          // Remove preload stylesheet links
+          .replace(
+
+            /<link[^>]*as=["']style["'][^>]*>/gi,
+
+            ""
+
+          );
+
+
+      // ------------------------------------------------
+      // LIMIT IMPORT SIZE
+      // ------------------------------------------------
+
+      const MAX_HTML_SIZE =
+        50000;
+
+
+      const extractedContent =
+        cleanedHtml.substring(
+          0,
+          MAX_HTML_SIZE
+        );
+
+
+      // ------------------------------------------------
+      // RETURN PROJECT DATA
+      // ------------------------------------------------
+
+      return res.json({
+
+        success: true,
+
+        originalUrl:
+          targetUrl.href,
+
+        originalLength:
+          rawHtml.length,
+
+        extractedLength:
+          cleanedHtml.length,
+
+        truncated:
+          cleanedHtml.length >
+          MAX_HTML_SIZE,
+
+        extractedContent
+
+      });
+
+
+    } catch (error) {
+
+      console.error(
+        "❌ Website importer error:",
+        getErrorMessage(error)
+      );
+
+
+      return res.status(500).json({
+
+        success: false,
+
+        error:
+          `Website import failed: ${getErrorMessage(error)}`
+
+      });
+
+    }
+
+  }
+);
+
+
+// ======================================================
+// PEXELS PHOTOS
+// ======================================================
+
+app.get(
+  "/api/pexels/photos",
+  async (req, res) => {
+
+    try {
+
+      const query =
+        String(
+          req.query.q ||
+          "technology"
+        ).trim();
+
+
+      // ------------------------------------------------
+      // LIMIT RESULTS
+      // ------------------------------------------------
+
+      let perPage =
+        Number(
+          req.query.per_page ||
+          3
+        );
+
+
+      if (
+        !Number.isFinite(perPage)
+      ) {
+
+        perPage = 3;
+
+      }
+
+
+      perPage =
+        Math.max(
+          1,
+          Math.min(
+            perPage,
+            20
+          )
+        );
+
+
+      // ------------------------------------------------
+      // CHECK PEXELS KEY
+      // ------------------------------------------------
+
+      if (
+        !hasKey(
+          CONFIG.pexels.key
+        )
+      ) {
+
+        return res.json({
+
+          success: true,
+
+          photos: [],
+
+          total_results: 0,
+
+          configured: false,
+
+          message:
+            "PEXELS_API_KEY is not configured."
+
+        });
+
+      }
+
+
+      // ------------------------------------------------
+      // BUILD PEXELS URL
+      // ------------------------------------------------
+
+      const pexelsUrl =
+        "https://api.pexels.com/v1/search" +
+
+        `?query=${encodeURIComponent(query)}` +
+
+        `&per_page=${perPage}`;
+
+
+      console.log(
+        `🖼️ Pexels photo search: ${query}`
+      );
+
+
+      // ------------------------------------------------
+      // REQUEST PEXELS
+      // ------------------------------------------------
+
+      const response =
+        await fetchWithTimeout(
+
+          pexelsUrl,
+
+          {
+
+            method: "GET",
+
+            headers: {
+
+              "Authorization":
+                CONFIG.pexels.key,
+
+              "Accept":
+                "application/json"
+
+            }
+
+          }
+
+        );
+
+
+      const data =
+        await response.json();
+
+
+      if (!response.ok) {
+
+        throw new Error(
+
+          data?.error ||
+
+          `Pexels returned HTTP ${response.status}`
+
+        );
+
+      }
+
+
+      // ------------------------------------------------
+      // RETURN DATA
+      // ------------------------------------------------
+
+      return res.json({
+
+        ...data,
+
+        success: true,
+
+        configured: true
+
+      });
+
+
+    } catch (error) {
+
+      console.error(
+        "❌ Pexels photos error:",
+        getErrorMessage(error)
+      );
+
+
+      return res.status(500).json({
+
+        success: false,
+
+        error:
+          "Failed to fetch Pexels photos.",
+
+        details:
+          getErrorMessage(error)
+
+      });
+
+    }
+
+  }
+);
+
+
+// ======================================================
+// PEXELS VIDEOS
+// ======================================================
+
+app.get(
+  "/api/pexels/videos",
+  async (req, res) => {
+
+    try {
+
+      const query =
+        String(
+          req.query.q ||
+          "technology"
+        ).trim();
+
+
+      // ------------------------------------------------
+      // LIMIT RESULTS
+      // ------------------------------------------------
+
+      let perPage =
+        Number(
+          req.query.per_page ||
+          2
+        );
+
+
+      if (
+        !Number.isFinite(perPage)
+      ) {
+
+        perPage = 2;
+
+      }
+
+
+      perPage =
+        Math.max(
+          1,
+          Math.min(
+            perPage,
+            10
+          )
+        );
+
+
+      // ------------------------------------------------
+      // CHECK PEXELS KEY
+      // ------------------------------------------------
+
+      if (
+        !hasKey(
+          CONFIG.pexels.key
+        )
+      ) {
+
+        return res.json({
+
+          success: true,
+
+          videos: [],
+
+          total_results: 0,
+
+          configured: false,
+
+          message:
+            "PEXELS_API_KEY is not configured."
+
+        });
+
+      }
+
+
+      // ------------------------------------------------
+      // BUILD PEXELS URL
+      // ------------------------------------------------
+
+      const pexelsUrl =
+        "https://api.pexels.com/videos/search" +
+
+        `?query=${encodeURIComponent(query)}` +
+
+        `&per_page=${perPage}`;
+
+
+      console.log(
+        `🎥 Pexels video search: ${query}`
+      );
+
+
+      // ------------------------------------------------
+      // REQUEST PEXELS
+      // ------------------------------------------------
+
+      const response =
+        await fetchWithTimeout(
+
+          pexelsUrl,
+
+          {
+
+            method: "GET",
+
+            headers: {
+
+              "Authorization":
+                CONFIG.pexels.key,
+
+              "Accept":
+                "application/json"
+
+            }
+
+          }
+
+        );
+
+
+      const data =
+        await response.json();
+
+
+      if (!response.ok) {
+
+        throw new Error(
+
+          data?.error ||
+
+          `Pexels returned HTTP ${response.status}`
+
+        );
+
+      }
+
+
+      // ------------------------------------------------
+      // RETURN DATA
+      // ------------------------------------------------
+
+      return res.json({
+
+        ...data,
+
+        success: true,
+
+        configured: true
+
+      });
+
+
+    } catch (error) {
+
+      console.error(
+        "❌ Pexels videos error:",
+        getErrorMessage(error)
+      );
+
+
+      return res.status(500).json({
+
+        success: false,
+
+        error:
+          "Failed to fetch Pexels videos.",
+
+        details:
+          getErrorMessage(error)
+
+      });
+
+    }
+
+  }
+);
+
+
+// ======================================================
+// MEDIA STATUS
+// ======================================================
+
+app.get(
+  "/api/media/status",
+  (req, res) => {
+
+    res.json({
+
+      success: true,
+
+      pexels: {
+
+        configured:
+          hasKey(
+            CONFIG.pexels.key
+          )
+
+      },
+
+      endpoints: {
+
+        photos:
+          "/api/pexels/photos?q=technology",
+
+        videos:
+          "/api/pexels/videos?q=technology"
+
+      }
+
+    });
+
+  }
+);
+/* =====================================================
+   A² BUILDER BACKEND — BATCH 6
+   FINAL ERROR HANDLING + SERVER STARTUP
+===================================================== */
+
+/* =========================
+   1. 404 HANDLER
+========================= */
+
+app.use((req, res) => {
+  res.status(404).json({
+    success: false,
+    error: "Route not found",
+    method: req.method,
+    path: req.originalUrl,
+    message: "The requested A² Builder API endpoint does not exist."
+  });
+});
+
+
+/* =========================
+   2. GLOBAL ERROR HANDLER
+========================= */
+
+app.use((err, req, res, next) => {
+  console.error("━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+  console.error("A² BUILDER SERVER ERROR");
+  console.error("Method:", req.method);
+  console.error("Path:", req.originalUrl);
+  console.error("Error:", err);
+  console.error("━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+
+  if (res.headersSent) {
+    return next(err);
+  }
+
+  const statusCode =
+    Number(err.statusCode || err.status || 500);
+
+  res.status(
+    statusCode >= 400 && statusCode < 600
+      ? statusCode
+      : 500
+  );
+
+  res.json({
+    success: false,
+    error: "A² Builder server error",
+    message:
+      process.env.NODE_ENV === "production"
+        ? "Something went wrong on the server."
+        : getErrorMessage(err)
+  });
+});
+
+
+/* =========================
+   3. PROCESS ERROR SAFETY
+========================= */
+
+process.on("uncaughtException", (error) => {
+  console.error("━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+  console.error("UNCAUGHT EXCEPTION");
+  console.error(error);
+  console.error("━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+});
+
+process.on("unhandledRejection", (reason) => {
+  console.error("━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+  console.error("UNHANDLED PROMISE REJECTION");
+  console.error(reason);
+  console.error("━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+});
+
+
+/* =========================
+   4. START SERVER
+========================= */
+
+app.listen(PORT, () => {
+  console.log("");
+  console.log("==============================================");
+  console.log("        A² BUILDER BACKEND v3.0");
+  console.log("==============================================");
+  console.log(`Server running on port: ${PORT}`);
+  console.log(`Health: /health`);
+  console.log(`AI: /api/ai`);
+  console.log(`Providers: /api/providers`);
+  console.log(`Convert Site: /api/convert-site`);
+  console.log(`Pexels Photos: /api/pexels/photos`);
+  console.log(`Pexels Videos: /api/pexels/videos`);
+  console.log(`Media Status: /api/media/status`);
+  console.log("==============================================");
+
+  const configured = getConfiguredProviders();
+
+  console.log("");
+  console.log("Configured AI Providers:");
+
+  if (configured.length === 0) {
+    console.log("⚠️ No AI API keys configured.");
+    console.log("Demo fallback mode is available.");
+  } else {
+    configured.forEach((provider, index) => {
+      console.log(`${index + 1}. ${provider}`);
+    });
+  }
+
+  console.log("");
+
+  console.log(
+    `Pexels API: ${
+      hasKey(CONFIG.pexels.key)
+        ? "Configured"
+        : "Not configured"
+    }`
+  );
+
+  console.log("");
+  console.log("A² Builder backend is ready.");
+  console.log("==============================================");
+});
