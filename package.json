@@ -1,0 +1,13 @@
+{
+  "name": "a2-builder-backend",
+  "version": "1.1.0",
+  "description": "A² Builder backend with AI providers, Pexels media routes, website import, and Cloudflare Pages deployment",
+  "main": "server.js",
+  "scripts": { "start": "node server.js" },
+  "engines": { "node": ">=18" },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2"
+  }
+}
