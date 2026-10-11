@@ -4,7 +4,7 @@
   "description": "A² Builder backend with AI providers, Pexels media routes, website import, and Cloudflare Pages deployment",
   "main": "server.js",
   "scripts": { "start": "node server.js" },
-  "engines": { "node": ">=18" },
+  "engines": { "node": ">=20" },
   "dependencies": {
     "cors": "^2.8.5",
     "dotenv": "^16.4.7",
