@@ -111,3 +111,17 @@ VERIFICATION LIMIT
 Local syntax checks can verify JavaScript syntax, but cannot verify your Render
 configuration, private API keys, provider quotas, Cloudflare permissions, Pexels
 credentials, or remote Android runner. Test those services after deployment.
+
+
+FRONTEND/BACKEND MONETISATION CONFIG HANDOFF
+The Android Studio frontend includes a monetization object in the Android build request. The gateway now validates and forwards these settings to the runner:
+- ads
+- subscriptions
+- oneTimeDigitalPurchases
+- physicalGoodsAndServices
+- affiliateLinks
+- sponsoredContent
+- billingMode (test/production)
+- premiumEntitlement
+
+Important: forwarding configuration is not the same as implementing monetization. The Android runner must still add the correct native SDKs and resources, and server-side purchase verification is required for digital billing. Never put secret payment-provider keys in the app frontend. AdMob production IDs must be valid; use test mode during development.
